@@ -521,8 +521,10 @@ def too_large(_error):
     return json_response_error("Сұрау көлемі тым үлкен.", 413)
 
 
+# Initialize database when the application starts
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     print("Aven stud: http://127.0.0.1:5000")
     print("OpenAI API:", "configured" if OPENAI_API_KEY and OpenAI else "not configured (demo/local mode)")
     app.run(host="0.0.0.0", port=int(os.getenv("PORT", "5000")), debug=os.getenv("FLASK_DEBUG", "0") == "1")
