@@ -16,7 +16,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 try:
     from openai import OpenAI
-except ImportError:  # The app still works in local/fallback mode without the SDK installed.
+except ImportError:
     OpenAI = None  # type: ignore[assignment,misc]
 
 
@@ -58,20 +58,76 @@ if GROQ_API_KEY:
     AI_PROVIDER = "groq"
     AI_BASE_URL = GROQ_BASE_URL
     AI_API_KEY = GROQ_API_KEY
-    AI_MODEL = (os.getenv("GROQ_MODEL") or os.getenv("AI_MODEL") or "llama-3.3-70b-versatile").strip()
+    AI_MODEL = (os.getenv("GROQ_MODEL") or os.getenv("AI_MODEL") or "openai/gpt-oss-20b").strip()
 else:
     AI_PROVIDER = "ollama"
     AI_BASE_URL = OLLAMA_BASE_URL
     AI_API_KEY = OLLAMA_API_KEY
     AI_MODEL = (os.getenv("OLLAMA_MODEL") or os.getenv("AI_MODEL") or "gemma3:4b").strip()
 
+MAJOR_DATA: dict[str, dict[str, Any]] = {
+    "Бағдарламалық қамтамасыз ету": {
+        "role": "it",
+        "topics": [
+            "Айнымалылар және типтер",
+            "Шарттар мен циклдер",
+            "Функциялар",
+            "Массивтер және коллекциялар",
+        ],
+        "skills": [
+            "Python / C#",
+            "Алгоритмдер",
+            "SQL және деректер қоры",
+            "Git және командалық жұмыс",
+            "REST API",
+            "Тестілеу",
+        ],
+    },
+    "Вайб кодинг": {
+        "role": "vibecoding",
+        "topics": [
+            "Промпт-инжиниринг негіздері",
+            "LLM және AI-ассистенттер",
+            "Жылдам прототиптеу (MVP)",
+            "Кодты тексеру және деплой",
+        ],
+        "skills": [
+            "Cursor / AI IDE",
+            "Промпт құрастыру",
+            "API интеграциясы",
+            "Python / JS негіздері",
+            "Git және GitHub",
+            "Өнімдік ойлау",
+        ],
+    },
+    "Веб дизайн": {
+        "role": "design",
+        "topics": [
+            "Композиция және торлар",
+            "Типографика және түс",
+            "UI/UX негіздері",
+            "Адаптивті дизайн",
+        ],
+        "skills": [
+            "Figma",
+            "Прототиптеу",
+            "Дизайн-жүйелер",
+            "HTML / CSS негіздері",
+            "UX зерттеу",
+            "Визуалды коммуникация",
+        ],
+    },
+}
+
+DEFAULT_MAJOR = next(iter(MAJOR_DATA.keys()))
+
 DEFAULT_STATE: dict[str, Any] = {
     "progress": {"tutor": 0, "language": 0, "simulator": 0, "wellbeing": 0, "career": 0},
     "metrics": {"foundation": 0, "english": 0, "practice": 0, "balance": 0, "career": 0},
     "tasks": [
-        {"id": "task-1", "title": "Қайталау: алгоритмдердің негіздері", "done": False},
+        {"id": "task-1", "title": "Қайталау: негізгі тақырыпты бекіту", "done": False},
         {"id": "task-2", "title": "10 жаңа English терминін қайталау", "done": False},
-        {"id": "task-3", "title": "Бір практикалық есепті талдау", "done": False},
+        {"id": "task-3", "title": "Бір практикалық кейсті талдау", "done": False},
     ],
     "glossary": [],
     "bridges": [],
@@ -79,24 +135,6 @@ DEFAULT_STATE: dict[str, Any] = {
     "recall": {"seen": 0, "easy": 0},
     "tutorGapSolved": False,
     "aiCalibration": "Профиль деректері дайын. Жекелендіруді іске қосыңыз.",
-}
-
-MAJOR_DATA = {
-    "Бағдарламалық қамтамасыз ету": {
-        "role": "it",
-        "topics": ["Айнымалылар және типтер", "Шарттар мен циклдер", "Функциялар", "Массивтер және коллекциялар"],
-        "skills": ["Python / C#", "Алгоритмдер", "SQL және деректер қоры", "Git және командалық жұмыс", "REST API", "Тестілеу"],
-    },
-    "Вайб кодинг": {
-        "role": "it",
-        "topics": ["Промпт-инжиниринг", "LLM және AI-ассистенттер", "Жылдам прототиптеу", "Кодты тексеру және түзету"],
-        "skills": ["Cursor / AI IDE", "Промпт құрастыру", "API интеграциясы", "Python / JavaScript негіздері", "Git және деплой", "Өнімдік ойлау"],
-    },
-    "Веб дизайн": {
-        "role": "design",
-        "topics": ["Композиция және торлар", "Типографика және түс", "UI/UX негіздері", "Адаптивті дизайн"],
-        "skills": ["Figma", "Прототиптеу", "Дизайн-жүйелер", "HTML / CSS негіздері", "Пайдаланушы тәжірибесі (UX)", "Визуалды коммуникация"],
-    },
 }
 
 
@@ -166,6 +204,17 @@ def get_user(user_id: int | None = None):
     return get_db().execute("SELECT * FROM users WHERE id = ?", (uid,)).fetchone()
 
 
+def normalize_major(major: str) -> str:
+    return major if major in MAJOR_DATA else DEFAULT_MAJOR
+
+
+def fresh_state_for_major(major: str) -> dict[str, Any]:
+    state = json.loads(json.dumps(DEFAULT_STATE))
+    role = MAJOR_DATA[normalize_major(major)]["role"]
+    state["simulator"]["role"] = role
+    return state
+
+
 def load_state(user_id: int) -> dict[str, Any]:
     row = get_db().execute("SELECT state_json FROM app_states WHERE user_id = ?", (user_id,)).fetchone()
     if not row:
@@ -193,6 +242,7 @@ def save_state(user_id: int, state: dict[str, Any]) -> None:
 
 def public_user(row) -> dict[str, Any]:
     profile = json.loads(row["profile_json"])
+    profile["major"] = normalize_major(profile.get("major", DEFAULT_MAJOR))
     return {
         "id": row["id"],
         "name": row["name"],
@@ -240,7 +290,7 @@ def make_session(user_id: int) -> None:
 def validate_profile(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
     name = str(payload.get("name", "")).strip()[:80]
     email = str(payload.get("email", "")).strip().lower()[:160]
-    major = str(payload.get("major", "Программалық инженерия"))
+    major = str(payload.get("major", DEFAULT_MAJOR))
     if major not in MAJOR_DATA:
         return None, "Оқу бағытын таңдаңыз."
     english = str(payload.get("english", "B1"))
@@ -261,9 +311,16 @@ def validate_profile(payload: dict[str, Any]) -> tuple[dict[str, Any] | None, st
     if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
         return None, "Email форматын тексеріңіз."
     return {
-        "name": name, "email": email, "major": major, "course": course,
-        "english": english, "workHours": work_hours, "daysToExam": days_to_exam,
-        "style": style, "goal": goal, "pinEnabled": bool(payload.get("pinEnabled")),
+        "name": name,
+        "email": email,
+        "major": major,
+        "course": course,
+        "english": english,
+        "workHours": work_hours,
+        "daysToExam": days_to_exam,
+        "style": style,
+        "goal": goal,
+        "pinEnabled": bool(payload.get("pinEnabled")),
     }, None
 
 
@@ -337,7 +394,7 @@ def security_headers(response):
 
 @app.get("/")
 def index():
-    return render_template("index.html")
+    return render_template("index.html", major_data=MAJOR_DATA)
 
 
 @app.get("/api/health")
@@ -349,6 +406,7 @@ def health():
         "provider": AI_PROVIDER,
         "model": AI_MODEL if ai_configured() else None,
         "baseUrl": AI_BASE_URL,
+        "majors": MAJOR_DATA,
     })
 
 
@@ -384,7 +442,7 @@ def register():
             ),
         )
         user_id = cur.lastrowid
-        save_state(user_id, json.loads(json.dumps(DEFAULT_STATE)))
+        save_state(user_id, fresh_state_for_major(profile["major"]))
         make_session(user_id)
     except sqlite3.IntegrityError:
         return json_response_error("Бұл email бұрын тіркелген. Кіру бөлімін пайдаланыңыз.", 409)
@@ -421,9 +479,16 @@ def demo_login():
     row = db.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
     if not row:
         profile = {
-            "name": "Алихан", "email": email, "major": "Программалық инженерия", "course": 3,
-            "english": "B1", "workHours": 16, "daysToExam": 18,
-            "style": "Ойындар және киберспорт", "goal": "Практикаға және тағылымдамаға дайындалу", "pinEnabled": True,
+            "name": "Алихан",
+            "email": email,
+            "major": DEFAULT_MAJOR,
+            "course": 3,
+            "english": "B1",
+            "workHours": 16,
+            "daysToExam": 18,
+            "style": "Ойындар және киберспорт",
+            "goal": "Практикаға және тағылымдамаға дайындалу",
+            "pinEnabled": True,
         }
         cur = db.execute(
             "INSERT INTO users(name,email,password_hash,pin_hash,profile_json,created_at) VALUES(?,?,?,?,?,?)",
@@ -437,7 +502,7 @@ def demo_login():
             ),
         )
         user_id = cur.lastrowid
-        save_state(user_id, json.loads(json.dumps(DEFAULT_STATE)))
+        save_state(user_id, fresh_state_for_major(DEFAULT_MAJOR))
     else:
         user_id = row["id"]
     make_session(user_id)
@@ -504,9 +569,16 @@ def update_profile():
         (profile["name"], json.dumps(profile, ensure_ascii=False), pin_hash, session["user_id"]),
     )
     get_db().commit()
+
+    state = load_state(session["user_id"])
+    new_role = MAJOR_DATA[profile["major"]]["role"]
+    if state.get("simulator", {}).get("role") != new_role:
+        state["simulator"] = {"role": new_role, "stage": 0, "trust": 65, "accuracy": 55, "stability": 70}
+        save_state(session["user_id"], state)
+
     return jsonify({
         "user": public_user(get_user()),
-        "state": load_state(session["user_id"]),
+        "state": state,
         "message": "ИИ-профиль жаңартылды.",
     })
 
@@ -532,6 +604,7 @@ def update_state():
 def ai_calibrate():
     row = get_user()
     profile = json.loads(row["profile_json"])
+    profile["major"] = normalize_major(profile.get("major", DEFAULT_MAJOR))
     local = local_calibration(profile)
     if not ai_configured():
         state = load_state(row["id"])
@@ -576,6 +649,7 @@ def ai_chat():
         return json_response_error("Сұрақ 3000 таңбадан аспауы керек.")
     row = get_user()
     profile = json.loads(row["profile_json"])
+    profile["major"] = normalize_major(profile.get("major", DEFAULT_MAJOR))
     if not ai_configured():
         return json_response_error("ИИ қосылмаған. GROQ_API_KEY немесе OLLAMA_URL параметрін тексеріңіз.", 503)
     if ai_limit_reached(row["id"]):
